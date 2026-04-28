@@ -3,12 +3,80 @@
 namespace App\Http\Controllers;
 
 use App\Models\PremiumPayment;
+use App\Services\GeniusPayService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Validator;
 
 class PremiumController extends Controller
 {
+    /**
+     * Initiate a GeniusPay premium payment.
+     * Returns a checkout_url for the Flutter WebView to open.
+     */
+    public function initiate(Request $request): JsonResponse
+    {
+        $validator = Validator::make($request->all(), [
+            'anon_id' => 'required|string',
+            'plan'    => 'required|in:monthly,yearly,lifetime',
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json([
+                'status'  => 'error',
+                'message' => 'Validation failed',
+                'errors'  => $validator->errors(),
+            ], 422);
+        }
+
+        $plans = config('geniuspay.plans');
+        $plan  = $request->plan;
+
+        if (! isset($plans[$plan])) {
+            return response()->json([
+                'status'  => 'error',
+                'message' => 'Invalid plan',
+            ], 400);
+        }
+
+        $amount      = $plans[$plan]['amount'];
+        $description = $plans[$plan]['description'];
+
+        try {
+            $geniusPay = new GeniusPayService();
+            $result    = $geniusPay->initiatePayment($request->anon_id, $amount, $plan, $description);
+
+            PremiumPayment::create([
+                'anon_id'              => $request->anon_id,
+                'payment_id'           => $result['reference'],
+                'geniuspay_reference'  => $result['reference'],
+                'amount'               => $amount,
+                'currency'             => 'XOF',
+                'status'               => 'pending',
+                'platform'             => 'geniuspay',
+                'plan'                 => $plan,
+            ]);
+
+            return response()->json([
+                'status'       => 'success',
+                'checkout_url' => $result['checkout_url'],
+                'reference'    => $result['reference'],
+            ], 201);
+        } catch (\Throwable $e) {
+            Log::error('[PremiumController] initiate failed', [
+                'anon_id' => $request->anon_id,
+                'plan'    => $plan,
+                'error'   => $e->getMessage(),
+            ]);
+
+            return response()->json([
+                'status'  => 'error',
+                'message' => 'Failed to initiate payment. Please try again.',
+            ], 500);
+        }
+    }
+
     public function verify(Request $request): JsonResponse
     {
         $validator = Validator::make($request->all(), [
@@ -63,18 +131,28 @@ class PremiumController extends Controller
 
         if (!$payment) {
             return response()->json([
-                'anon_id' => $anon_id,
-                'is_premium' => false,
+                'anon_id'     => $anon_id,
+                'is_premium'  => false,
                 'verified_at' => null,
-                'platform' => null,
+                'expires_at'  => null,
+                'platform'    => null,
+                'plan'        => null,
             ], 200);
         }
 
+        $expiresAt = match ($payment->plan) {
+            'monthly'  => $payment->verified_at->addDays(30)->toIso8601String(),
+            'yearly'   => $payment->verified_at->addDays(365)->toIso8601String(),
+            default    => null, // lifetime or unknown
+        };
+
         return response()->json([
-            'anon_id' => $payment->anon_id,
-            'is_premium' => true,
+            'anon_id'     => $payment->anon_id,
+            'is_premium'  => true,
             'verified_at' => $payment->verified_at->toIso8601String(),
-            'platform' => $payment->platform,
+            'expires_at'  => $expiresAt,
+            'platform'    => $payment->platform,
+            'plan'        => $payment->plan,
         ], 200);
     }
 

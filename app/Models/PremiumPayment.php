@@ -12,10 +12,12 @@ class PremiumPayment extends Model
     protected $fillable = [
         'anon_id',
         'payment_id',
+        'geniuspay_reference',
         'amount',
         'currency',
         'status',
         'platform',
+        'plan',
         'verified_at',
         'revoked_at',
         'revoked_reason',
@@ -23,7 +25,7 @@ class PremiumPayment extends Model
 
     protected $casts = [
         'verified_at' => 'datetime',
-        'revoked_at' => 'datetime',
-        'amount' => 'decimal:2',
+        'revoked_at'  => 'datetime',
+        'amount'      => 'decimal:2',
     ];
 }
