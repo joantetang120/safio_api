@@ -120,6 +120,33 @@ class ApiTest extends TestCase
             ]);
     }
 
+    public function test_snapshot_upload_accepts_forward_schema_versions_for_premium_goal_analytics(): void
+    {
+        $payload = [
+            'anon_id' => 'premium-goals-anon-123',
+            'encrypted_blob' => 'encrypted_premium_goal_snapshot',
+            'schema_version' => '1.2.0',
+            'checksum' => 'goal_checksum_123',
+            'last_sync' => '2026-05-18T12:00:00Z',
+        ];
+
+        $uploadResponse = $this->postJson('/api/snapshots/upload', $payload);
+
+        $uploadResponse->assertStatus(200)
+            ->assertJson([
+                'status' => 'success',
+            ]);
+
+        $fetchResponse = $this->getJson('/api/snapshots/fetch/premium-goals-anon-123');
+
+        $fetchResponse->assertStatus(200)
+            ->assertJson([
+                'anon_id' => 'premium-goals-anon-123',
+                'schema_version' => '1.2.0',
+                'checksum' => 'goal_checksum_123',
+            ]);
+    }
+
     public function test_premium_verify_creates_payment_record(): void
     {
         $payload = [
